@@ -22,23 +22,19 @@ ADMINISTRATOR = 8
 logger.info("This bot's invite URL is #{bot.invite_url(permission_bits: ADMINISTRATOR)}.")
 logger.info("Click on it to invite it to your server.")
 
-# TODO: replace hard coded users with a dynamic registry
-users = []
-
-users.each do |user|
-  bot.message(from: user) do |event|
-    case analysed = sentiment_analysis(event.message.content)
-    when /Positive/i
-      puts "Positive"
-    when /Negative/i
-      puts "Negative"
-      edited = moderation_rewrite(event.message.content)
-      puts edited
-      event.message.delete("Moderation rewrite")
-      event.respond("~~#{event.message.content}~~" + "\n" + edited)
-    else
-      puts "Neutral"
-    end
+bot.message do |event|
+  puts sentiment_analysis(event.message.content)
+  case analysed = sentiment_analysis(event.message.content)
+  when /Positive/i
+    puts analysed
+    puts "Positive"
+    puts "Toxic Message Generated"
+    toxic_message = toxic_generator(event.message.content)
+    corrected_message = rewrite(toxic_message)
+    event.respond(corrected_message)
+  else
+    puts analysed
+    puts "Neutral"
   end
 end
 
@@ -67,7 +63,8 @@ def sentiment_analysis(text)
   request["Authorization"] = "Bearer #{OPENAI_API_KEY}"
   request.body = {
     model: "text-davinci-003",
-    prompt: "Do you feel like the statement : \"#{text}\" is positive, negative or neutral?",
+    prompt: "Do you feel like the statement : \"#{text}\" is related to one of the following subject \"#{trigger_words.join(", ")}\"?
+             If so, respond with Positive.",
     temperature: 0.7,
     max_tokens: 256,
     top_p: 1,
@@ -84,8 +81,7 @@ def sentiment_analysis(text)
   end
 end
 
-# moderation request
-def moderation_rewrite(text)
+def toxic_generator(user_text)
   uri = URI.parse("https://api.openai.com/v1/completions")
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = true
@@ -94,7 +90,12 @@ def moderation_rewrite(text)
   request["Authorization"] = "Bearer #{OPENAI_API_KEY}"
   request.body = {
     model: "text-davinci-003",
-    prompt: "Rewrite the following statement in a positive manner : \"#{text}\"",
+    prompt: "Write a short toxic masculinity statement relative to \"#{user_text}\" and \"#{antagonizing_subjects.sample}\"
+             in an extremely bad french quebecois, with a lot of spelling mistakes.
+             Talk about what real men would do. Talk about real men as \"les vrais hommes\" or \"gars de chantier\".
+             Make it sound very aggressive.
+             Use french quebecois slang.
+             Make a lot of spelling mistakes.",
     temperature: 0.7,
     max_tokens: 256,
     top_p: 1,
@@ -109,10 +110,53 @@ def moderation_rewrite(text)
   if ret.include?("error")
     ret["error"]
   else
+    puts ret["choices"][0]["text"].strip
     ret["choices"][0]["text"].strip
   end
+end
+
+DIACRITICS = [*0x1DC0..0x1DFF, *0x0300..0x036F, *0xFE20..0xFE2F].pack('U*')
+def removeaccents(str)
+  str
+    .unicode_normalize(:nfd)
+    .tr(DIACRITICS, '')
+    .unicode_normalize(:nfc)
+end
+
+def rewrite(text)
+  text.downcase!
+  text.gsub! '.', [' . ', ''].sample
+  text.gsub! ', ', [',', ' ', ', '].sample
+  text.gsub! '!', [' . ', ''].sample
+  text.gsub! '\'cest', 'ses'
+  text.gsub! '\'', [' ', ''].sample
+  text = removeaccents(text)
+  return text
+end
+
+def trigger_words
+  ["travail",
+   "travail de la maison",
+   "work from home",
+   "gouvernement",
+   "greve",
+   "cheque",
+   "chomage",
+   "fonctionnaire"]
+end
+
+def antagonizing_subjects
+  ["travail de la maison",
+   "gouvernement",
+   "greve au gouvernement",
+   "cheque",
+   "chomage",
+   "fonctionnaire",
+   "admin du discord corrompus"]
 end
 
 # This method call has to be put at the end of your script, it is what makes the bot actually connect to Discord. If you
 # leave it out (try it!) the script will simply stop and the bot will not appear online.
 bot.run
+
+
